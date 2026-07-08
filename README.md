@@ -1,11 +1,11 @@
-# RegionBattle Game Engine for CodeClash
+# PaintVolley Game Engine for CodeClash
 
-This repository contains the game engine and starter bot for the **RegionBattle**
+This repository contains the game engine and starter bot for the **PaintVolley**
 arena in [CodeClash](https://github.com/CodeClash-ai/CodeClash).
 
 ## Overview
 
-RegionBattle is a competitive **territory-painting** game. Each player controls a
+PaintVolley is a competitive **territory-painting** game. Each player controls a
 helmet-wearing character that patrols the bottom of a rectangular field. Balls fly
 around the field bouncing off all four walls (no gravity). Every tick, each ball
 paints the tile it is passing over **in its own color**.
@@ -24,7 +24,7 @@ bumping balls to paint, and steal the opponent's balls to deny them.
 ## Repository Structure
 
 ```
-RegionBattle/
+PaintVolley/
 ├── engine.py    # Game engine — runs games between bots (do not edit for the contest)
 ├── main.py      # Starter bot implementation (EDIT THIS)
 └── README.md

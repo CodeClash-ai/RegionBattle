@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-RegionBattle Game Engine
+PaintVolley Game Engine
 ========================
 
 A deterministic, tick-based territory-painting arena for CodeClash.
@@ -492,7 +492,7 @@ def write_replay(result: dict, game_num: int, bot_paths: list[str], output_dir: 
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="RegionBattle Game Engine")
+    parser = argparse.ArgumentParser(description="PaintVolley Game Engine")
     parser.add_argument("bots", nargs="+", help="Paths to bot files (main.py)")
     parser.add_argument("-r", "--rounds", type=int, default=10, help="Number of games")
     parser.add_argument("-o", "--output-dir", type=str, default=None, help="Replay output dir")

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-RegionBattle Starter Bot
+PaintVolley Starter Bot
 ========================
 
 Edit this file to implement your bot. You must define ONE function:
