@@ -62,7 +62,7 @@ MAX_BOUNCE_ANGLE = math.radians(60)  # helmet-edge hit deflects up to this from 
 
 MAX_TICKS = 1500             # tick budget per game
 TURN_TIMEOUT = 0.10          # seconds a single get_action call may take before -> NONE
-REPLAY_EVERY = 5             # record a replay frame every N ticks
+REPLAY_EVERY = 1             # record a replay frame every N ticks (1 = smoothest playback)
 
 NEUTRAL = -1                 # unpainted tile / unclaimed ball color
 
