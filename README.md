@@ -116,10 +116,14 @@ obs = {
 ## Physics, exactly
 
 Each tick, in order: every player's action is applied (move + maybe start a jump);
-**characters are solid**, so any overlapping pair is pushed apart to a minimum center
-gap of `2 * player_half_width` (you cannot pass through the other player); jumping
-players integrate under gravity; then every ball moves by `(vx, vy)`, painting each
-tile along its path in its color. A ball then reflects off any wall it hits
+**characters are solid** — two players at the same height can't pass through each other
+(they're pushed apart to a min center gap of `2 * player_half_width`), but one can jump
+**onto another's head** and stand there. A player being stood on **cannot jump** (its
+`can_jump` is `false`) though it can still move. Airborne players integrate under
+gravity. Then every ball moves by `(vx, vy)`, painting each tile along its path in its
+color, and finally collides with the solid characters: the **top of the head catches**
+it (recolor + angled launch), while the **sides and underside bounce** it (reflect, no
+recolor) — balls ricochet off bodies instead of passing through them. A ball then reflects off any wall it hits
 (speed preserved, so `|v|` is always `ball_speed`). Finally, if a ball crossed a
 helmet's top surface while descending and was within `[x - hw, x + hw]` horizontally,
 it is **recolored** to that player and launched upward with

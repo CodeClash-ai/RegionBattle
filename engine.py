@@ -53,11 +53,11 @@ BALL_RADIUS = 0.6
 BALL_SPEED = 0.45            # constant ball speed magnitude once a ball is in motion
 BALL_REST_GAP = 2.0          # how far above the helmet a ball floats at rest (pre-bump)
 
-PLAYER_HALF_WIDTH = 2.0      # helmet catch surface spans [x - hw, x + hw]
-PLAYER_BODY_HALF_WIDTH = 0.8 # solid body half-width (used for player-player collision)
+PLAYER_HALF_WIDTH = 0.9      # solid character half-width: the whole body is [x-hw, x+hw]
+                             # and is used for player-player collision AND ball collision
 PLAYER_HEIGHT = 2.5          # from feet up to helmet surface
 PLAYER_SPEED = 0.5           # horizontal move per tick (tiles / tick)
-JUMP_SPEED = 0.48            # initial upward velocity of a jump (~60% of the old height)
+JUMP_SPEED = 0.39            # initial upward velocity of a jump (~2.5-tile peak height)
 GRAVITY = 0.032              # downward accel applied to an airborne player per tick
 STACK_CLEAR = 0.6            # vertical separation above which players can overlap in x
                              # (so one can rise over another and land on its head)
@@ -207,7 +207,6 @@ class Game:
             "ball_radius": BALL_RADIUS,
             "ball_speed": BALL_SPEED,
             "player_half_width": PLAYER_HALF_WIDTH,
-            "player_body_half_width": PLAYER_BODY_HALF_WIDTH,
             "player_height": PLAYER_HEIGHT,
             "player_speed": PLAYER_SPEED,
             "jump_speed": JUMP_SPEED,
@@ -260,7 +259,7 @@ class Game:
         next to each other but not through each other). When one is more than STACK_CLEAR
         higher than the other, horizontal overlap IS allowed -- that's how a player rises
         over another and comes down on its head. Clamp to the walls afterward."""
-        min_gap = 2 * PLAYER_BODY_HALF_WIDTH
+        min_gap = 2 * PLAYER_HALF_WIDTH
         for _ in range(4):
             order = sorted(self.players, key=lambda p: p.x)
             moved = False
@@ -272,7 +271,7 @@ class Game:
                     b.x += push
                     moved = True
             for p in self.players:
-                p.x = max(PLAYER_BODY_HALF_WIDTH, min(WIDTH - PLAYER_BODY_HALF_WIDTH, p.x))
+                p.x = max(PLAYER_HALF_WIDTH, min(WIDTH - PLAYER_HALF_WIDTH, p.x))
             if not moved:
                 break
 
@@ -292,7 +291,7 @@ class Game:
             support = 0.0
             carrier = None
             for q in self.players:
-                if q is p or abs(p.x - q.x) >= 2 * PLAYER_BODY_HALF_WIDTH:
+                if q is p or abs(p.x - q.x) >= 2 * PLAYER_HALF_WIDTH:
                     continue
                 head_top = q.y_off + PLAYER_HEIGHT  # height of q's head above the floor
                 if q.y_off < p.y_off and head_top > support:
@@ -343,47 +342,66 @@ class Game:
                 b.y = HEIGHT - BALL_RADIUS
                 b.vy = -abs(b.vy)
 
-            self._resolve_helmet_bump(b)
+            self._resolve_player_ball(b)
 
-    def _resolve_helmet_bump(self, b: Ball) -> None:
-        """Recolor + launch a ball that touches a helmet's top surface (Breakout-paddle
-        style). Contact fires whether the *ball descends onto* a helmet or the *helmet
-        rises into* the ball (a jump) -- the ball just has to be resting on the top
-        surface and not already flying upward off it.
+    def _resolve_player_ball(self, b: Ball) -> None:
+        """Ball vs solid characters. The character is a solid box [x-hw, x+hw] from its
+        head (helmet_y) down to its feet. The TOP of the head *catches* the ball --
+        recoloring it to that player and launching it upward at an angle set by where it
+        struck (center = straight up, edge = steep). The sides and underside are solid
+        and simply *bounce* the ball (reflect, no recolor), so balls ricochet off bodies
+        instead of passing through them.
 
-        When more than one helmet touches the ball this tick (players can stack while
-        jumping), resolve it *fairly*: the physically highest helmet wins, then the one
-        whose center is nearest the ball, and only an exact tie is broken by the game
-        RNG. Never by player id, so no seating position is systematically favored."""
-        candidates = []
+        A top-catch fires whether the ball descends onto the head or a jumping head rises
+        into it. Contested catches (players stacked) are resolved fairly: highest head,
+        then nearest center, RNG only for an exact tie -- never by player id."""
+        hw = PLAYER_HALF_WIDTH
+
+        # 1) Top-of-head catch. Collect every player the ball is resting on the top of.
+        catchers = []
         for p in self.players:
             top = p.helmet_y
-            near_x = (p.x - PLAYER_HALF_WIDTH - BALL_RADIUS) <= b.x <= (
-                p.x + PLAYER_HALF_WIDTH + BALL_RADIUS
-            )
-            # Ball sits on the top surface: its center is within one radius above the
-            # helmet top, and it isn't already launching upward off it.
-            on_top = (top - BALL_RADIUS) <= b.y <= top and b.vy > -0.05
-            if near_x and on_top:
-                candidates.append(p)
-        if not candidates:
+            on_top = (p.x - hw) <= b.x <= (p.x + hw) and (top - BALL_RADIUS) <= b.y <= top and b.vy > -0.05
+            if on_top:
+                catchers.append(p)
+        if catchers:
+            def key(p: PlayerState) -> tuple[float, float]:
+                return (round(p.helmet_y, 6), round(abs(b.x - p.x), 6))
+
+            best = min(key(p) for p in catchers)
+            finalists = [p for p in catchers if key(p) == best]
+            w = finalists[0] if len(finalists) == 1 else finalists[self.rng.randrange(len(finalists))]
+            offset = max(-1.0, min(1.0, (b.x - w.x) / hw))
+            theta = offset * MAX_BOUNCE_ANGLE
+            b.vx = BALL_SPEED * math.sin(theta)
+            b.vy = -BALL_SPEED * math.cos(theta)
+            b.y = w.helmet_y - BALL_RADIUS
+            b.color = w.pid
             return
 
-        def key(p: PlayerState) -> tuple[float, float]:
-            return (round(p.helmet_y, 6), round(abs(b.x - p.x), 6))
-
-        best = min(key(p) for p in candidates)
-        finalists = [p for p in candidates if key(p) == best]
-        winner = finalists[0] if len(finalists) == 1 else finalists[self.rng.randrange(len(finalists))]
-
-        # offset in [-1, 1]: where on the helmet it struck
-        offset = (b.x - winner.x) / PLAYER_HALF_WIDTH
-        offset = max(-1.0, min(1.0, offset))
-        theta = offset * MAX_BOUNCE_ANGLE
-        b.vx = BALL_SPEED * math.sin(theta)
-        b.vy = -BALL_SPEED * math.cos(theta)
-        b.y = winner.helmet_y - BALL_RADIUS
-        b.color = winner.pid
+        # 2) Solid-body bounce off the sides / underside of any character the ball is
+        # penetrating. Reflect along the axis of shallower penetration and push clear.
+        for p in self.players:
+            top = p.helmet_y
+            feet = HEIGHT - p.y_off
+            overlap_x = (hw + BALL_RADIUS) - abs(b.x - p.x)
+            overlap_y = min((b.y + BALL_RADIUS) - top, (feet + BALL_RADIUS) - b.y)
+            if overlap_x <= 0 or overlap_y <= 0:
+                continue
+            if overlap_x <= overlap_y:
+                if b.x < p.x:
+                    b.x = p.x - hw - BALL_RADIUS
+                    b.vx = -abs(b.vx)
+                else:
+                    b.x = p.x + hw + BALL_RADIUS
+                    b.vx = abs(b.vx)
+            else:
+                if b.y < (top + feet) / 2:
+                    b.y = top - BALL_RADIUS
+                    b.vy = -abs(b.vy)
+                else:
+                    b.y = feet + BALL_RADIUS
+                    b.vy = abs(b.vy)
 
     def scores(self) -> dict[int, int]:
         counts = {i: 0 for i in range(self.n)}
