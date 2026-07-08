@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+*.pyo
+.DS_Store
+/rb_out/
+sim_*.json
+.venv/
+venv/
