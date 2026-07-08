@@ -296,7 +296,14 @@ class Game:
             self._resolve_helmet_bump(b, y0)
 
     def _resolve_helmet_bump(self, b: Ball, y_prev: float) -> None:
-        """Recolor + reflect a ball that lands on a helmet (Breakout-paddle style)."""
+        """Recolor + reflect a ball that lands on a helmet (Breakout-paddle style).
+
+        When more than one helmet could catch the ball this tick (players can overlap
+        -- there is no player-player collision), resolve it *fairly*: the physically
+        highest helmet intercepts first, then the one whose center is nearest the ball,
+        and only an exact tie is broken by the game RNG. Never by player id, so no
+        seating position is systematically favored."""
+        candidates = []
         for p in self.players:
             top = p.helmet_y
             near_x = (p.x - PLAYER_HALF_WIDTH - BALL_RADIUS) <= b.x <= (
@@ -304,15 +311,25 @@ class Game:
             )
             crossed_top = (y_prev + BALL_RADIUS) <= top and (b.y + BALL_RADIUS) >= top
             if near_x and crossed_top and b.vy > 0:
-                # offset in [-1, 1]: where on the helmet it struck
-                offset = (b.x - p.x) / PLAYER_HALF_WIDTH
-                offset = max(-1.0, min(1.0, offset))
-                theta = offset * MAX_BOUNCE_ANGLE
-                b.vx = BALL_SPEED * math.sin(theta)
-                b.vy = -BALL_SPEED * math.cos(theta)
-                b.y = top - BALL_RADIUS
-                b.color = p.pid
-                return
+                candidates.append(p)
+        if not candidates:
+            return
+
+        def key(p: PlayerState) -> tuple[float, float]:
+            return (round(p.helmet_y, 6), round(abs(b.x - p.x), 6))
+
+        best = min(key(p) for p in candidates)
+        finalists = [p for p in candidates if key(p) == best]
+        winner = finalists[0] if len(finalists) == 1 else finalists[self.rng.randrange(len(finalists))]
+
+        # offset in [-1, 1]: where on the helmet it struck
+        offset = (b.x - winner.x) / PLAYER_HALF_WIDTH
+        offset = max(-1.0, min(1.0, offset))
+        theta = offset * MAX_BOUNCE_ANGLE
+        b.vx = BALL_SPEED * math.sin(theta)
+        b.vy = -BALL_SPEED * math.cos(theta)
+        b.y = winner.helmet_y - BALL_RADIUS
+        b.color = winner.pid
 
     def scores(self) -> dict[int, int]:
         counts = {i: 0 for i in range(self.n)}
