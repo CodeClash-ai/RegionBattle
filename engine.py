@@ -53,11 +53,14 @@ BALL_RADIUS = 0.6
 BALL_SPEED = 0.45            # constant ball speed magnitude once a ball is in motion
 BALL_REST_GAP = 2.0          # how far above the helmet a ball floats at rest (pre-bump)
 
-PLAYER_HALF_WIDTH = 2.0      # helmet spans [x - hw, x + hw]
-PLAYER_HEIGHT = 2.5          # from feet (bottom wall) up to helmet surface
+PLAYER_HALF_WIDTH = 2.0      # helmet catch surface spans [x - hw, x + hw]
+PLAYER_BODY_HALF_WIDTH = 0.8 # solid body half-width (used for player-player collision)
+PLAYER_HEIGHT = 2.5          # from feet up to helmet surface
 PLAYER_SPEED = 0.5           # horizontal move per tick (tiles / tick)
-JUMP_SPEED = 0.62            # initial upward velocity of a jump
-GRAVITY = 0.032              # downward accel applied to a jumping player per tick
+JUMP_SPEED = 0.48            # initial upward velocity of a jump (~60% of the old height)
+GRAVITY = 0.032              # downward accel applied to an airborne player per tick
+STACK_CLEAR = 0.6            # vertical separation above which players can overlap in x
+                             # (so one can rise over another and land on its head)
 MAX_BOUNCE_ANGLE = math.radians(60)  # helmet-edge hit deflects up to this from vertical
 
 MAX_TICKS = 1500             # tick budget per game
@@ -93,14 +96,20 @@ class PlayerState:
 
     pid: int
     x: float                 # helmet center x
-    y_off: float = 0.0       # jump height above resting position (>= 0)
-    vy: float = 0.0          # vertical velocity while airborne (up = negative)
-    on_ground: bool = True
+    y_off: float = 0.0       # feet height above the floor (0 = standing on the floor)
+    vy: float = 0.0          # vertical velocity of y_off (up = positive)
+    resting: bool = True     # feet are on a surface (the floor or another player's head)
+    carrying: bool = False   # another player is standing on this one's head
 
     @property
     def helmet_y(self) -> float:
         """World-y of the helmet surface (top of the character). Smaller y = higher."""
         return HEIGHT - PLAYER_HEIGHT - self.y_off
+
+    @property
+    def can_jump(self) -> bool:
+        """A player may jump only when resting on a surface and NOT being stood on."""
+        return self.resting and not self.carrying
 
 
 # --------------------------------------------------------------------------------------
@@ -198,6 +207,7 @@ class Game:
             "ball_radius": BALL_RADIUS,
             "ball_speed": BALL_SPEED,
             "player_half_width": PLAYER_HALF_WIDTH,
+            "player_body_half_width": PLAYER_BODY_HALF_WIDTH,
             "player_height": PLAYER_HEIGHT,
             "player_speed": PLAYER_SPEED,
             "jump_speed": JUMP_SPEED,
@@ -218,7 +228,8 @@ class Game:
                     "color": p.pid,
                     "x": p.x,
                     "y": p.helmet_y,
-                    "on_ground": p.on_ground,
+                    "on_ground": p.resting,     # resting on a surface (floor or a head)
+                    "can_jump": p.can_jump,     # False while another player stands on you
                 }
                 for p in self.players
             ],
@@ -239,40 +250,62 @@ class Game:
             p.x += PLAYER_SPEED
         p.x = max(PLAYER_HALF_WIDTH, min(WIDTH - PLAYER_HALF_WIDTH, p.x))
 
-        if action in ("JUMP", "JUMP_LEFT", "JUMP_RIGHT") and p.on_ground:
-            p.vy = -JUMP_SPEED
-            p.on_ground = False
+        if action in ("JUMP", "JUMP_LEFT", "JUMP_RIGHT") and p.can_jump:
+            p.vy = JUMP_SPEED
+            p.resting = False
 
     def resolve_player_collisions(self) -> None:
-        """Characters are solid: their helmets may not overlap horizontally. After moves
-        are applied, push any overlapping pair apart to a minimum center gap of 2*hw
-        (a few relaxation passes handle chains of 3+ players), then clamp to the walls."""
-        min_gap = 2 * PLAYER_HALF_WIDTH
+        """Bodies are solid *side to side*: two players at nearly the same height may not
+        overlap horizontally (min center gap 2*body_half_width, so they can stand right
+        next to each other but not through each other). When one is more than STACK_CLEAR
+        higher than the other, horizontal overlap IS allowed -- that's how a player rises
+        over another and comes down on its head. Clamp to the walls afterward."""
+        min_gap = 2 * PLAYER_BODY_HALF_WIDTH
         for _ in range(4):
             order = sorted(self.players, key=lambda p: p.x)
             moved = False
             for a, b in zip(order, order[1:]):
                 d = b.x - a.x
-                if d < min_gap - 1e-9:
+                if abs(a.y_off - b.y_off) < STACK_CLEAR and d < min_gap - 1e-9:
                     push = (min_gap - d) / 2
                     a.x -= push
                     b.x += push
                     moved = True
             for p in self.players:
-                p.x = max(PLAYER_HALF_WIDTH, min(WIDTH - PLAYER_HALF_WIDTH, p.x))
+                p.x = max(PLAYER_BODY_HALF_WIDTH, min(WIDTH - PLAYER_BODY_HALF_WIDTH, p.x))
             if not moved:
                 break
 
     def step_players(self) -> None:
+        # Integrate airborne players under gravity.
         for p in self.players:
-            if not p.on_ground:
-                # y_off is height above rest; vy negative = moving up (y_off increasing)
-                p.y_off -= p.vy
-                p.vy += GRAVITY
-                if p.y_off <= 0:
-                    p.y_off = 0.0
-                    p.vy = 0.0
-                    p.on_ground = True
+            if not p.resting:
+                p.y_off += p.vy
+                p.vy -= GRAVITY
+
+        # Resolve what each player is standing on: the floor, or the head of a lower
+        # player it overlaps in x. Settle lowest players first so stacks resolve, and
+        # flag the supporting player as "carrying" (which blocks its own jump).
+        for p in self.players:
+            p.carrying = False
+        for p in sorted(self.players, key=lambda q: q.y_off):
+            support = 0.0
+            carrier = None
+            for q in self.players:
+                if q is p or abs(p.x - q.x) >= 2 * PLAYER_BODY_HALF_WIDTH:
+                    continue
+                head_top = q.y_off + PLAYER_HEIGHT  # height of q's head above the floor
+                if q.y_off < p.y_off and head_top > support:
+                    support = head_top
+                    carrier = q
+            if p.vy <= 0 and p.y_off <= support + 0.05:
+                p.y_off = support
+                p.vy = 0.0
+                p.resting = True
+                if carrier is not None:
+                    carrier.carrying = True
+            else:
+                p.resting = False
 
     def _paint(self, x: float, y: float, color: int) -> None:
         if color == NEUTRAL:

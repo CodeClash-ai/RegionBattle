@@ -82,9 +82,10 @@ def get_action(obs: dict) -> str:
 
     # Jump up into the ball when we're basically underneath it and it's within reach
     # above us and not already flying upward (so this handles both a resting ball we
-    # want to start and a ball descending toward us).
+    # want to start and a ball descending toward us). can_jump is False while another
+    # player is standing on our head.
     if (
-        my["on_ground"]
+        my.get("can_jump", my["on_ground"])
         and abs(ball["x"] - my["x"]) < hw + 1.0
         and ball["y"] < helmet_y
         and ball["vy"] >= -0.01
