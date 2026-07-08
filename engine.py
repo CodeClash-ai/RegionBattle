@@ -243,37 +243,28 @@ class Game:
     # -- stepping ----------------------------------------------------------------------
 
     def apply_action(self, p: PlayerState, action: str) -> None:
+        dx = 0.0
         if action in ("LEFT", "JUMP_LEFT"):
-            p.x -= PLAYER_SPEED
+            dx = -PLAYER_SPEED
         elif action in ("RIGHT", "JUMP_RIGHT"):
-            p.x += PLAYER_SPEED
-        p.x = max(PLAYER_HALF_WIDTH, min(WIDTH - PLAYER_HALF_WIDTH, p.x))
+            dx = PLAYER_SPEED
+        if dx:
+            # Solid bodies: you can't move INTO a player at your height -- you're blocked
+            # (no pushing them). Players more than STACK_CLEAR apart in height don't block,
+            # so you can jump up and over one, or move out from under one standing on you.
+            target = p.x + dx
+            for q in self.players:
+                if q is p or abs(p.y_off - q.y_off) >= STACK_CLEAR:
+                    continue
+                if dx > 0 and p.x <= q.x:
+                    target = min(target, q.x - 2 * PLAYER_HALF_WIDTH)
+                elif dx < 0 and p.x >= q.x:
+                    target = max(target, q.x + 2 * PLAYER_HALF_WIDTH)
+            p.x = max(PLAYER_HALF_WIDTH, min(WIDTH - PLAYER_HALF_WIDTH, target))
 
         if action in ("JUMP", "JUMP_LEFT", "JUMP_RIGHT") and p.can_jump:
             p.vy = JUMP_SPEED
             p.resting = False
-
-    def resolve_player_collisions(self) -> None:
-        """Bodies are solid *side to side*: two players at nearly the same height may not
-        overlap horizontally (min center gap 2*body_half_width, so they can stand right
-        next to each other but not through each other). When one is more than STACK_CLEAR
-        higher than the other, horizontal overlap IS allowed -- that's how a player rises
-        over another and comes down on its head. Clamp to the walls afterward."""
-        min_gap = 2 * PLAYER_HALF_WIDTH
-        for _ in range(4):
-            order = sorted(self.players, key=lambda p: p.x)
-            moved = False
-            for a, b in zip(order, order[1:]):
-                d = b.x - a.x
-                if abs(a.y_off - b.y_off) < STACK_CLEAR and d < min_gap - 1e-9:
-                    push = (min_gap - d) / 2
-                    a.x -= push
-                    b.x += push
-                    moved = True
-            for p in self.players:
-                p.x = max(PLAYER_HALF_WIDTH, min(WIDTH - PLAYER_HALF_WIDTH, p.x))
-            if not moved:
-                break
 
     def step_players(self) -> None:
         # Integrate airborne players under gravity.
@@ -452,7 +443,6 @@ def run_game(bot_paths: list[str], seed: int) -> dict:
             fn = bots[i]
             action = "NONE" if fn is None else call_bot(fn, game.observation(i))
             game.apply_action(p, action)
-        game.resolve_player_collisions()
         game.step_players()
         game.step_balls()
         if t % REPLAY_EVERY == 0 or t == MAX_TICKS:

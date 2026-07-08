@@ -116,9 +116,10 @@ obs = {
 ## Physics, exactly
 
 Each tick, in order: every player's action is applied (move + maybe start a jump);
-**characters are solid** — two players at the same height can't pass through each other
-(they're pushed apart to a min center gap of `2 * player_half_width`), but one can jump
-**onto another's head** and stand there. A player being stood on **cannot jump** (its
+**characters are solid** — two players at the same height can't pass through each other:
+you're simply *blocked* if you try to walk into another player (you can't push them). But
+they only block at similar heights, so you can **jump up and over** a player, and land
+**on their head** to stand there. A player being stood on **cannot jump** (its
 `can_jump` is `false`) though it can still move. Airborne players integrate under
 gravity. Then every ball moves by `(vx, vy)`, painting each tile along its path in its
 color, and finally collides with the solid characters: the **top of the head catches**
