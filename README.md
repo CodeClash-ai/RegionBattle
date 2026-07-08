@@ -115,9 +115,11 @@ obs = {
 
 ## Physics, exactly
 
-Each tick, in order: every player's action is applied (move + maybe start a jump),
-jumping players integrate under gravity, then every ball moves by `(vx, vy)`, painting
-each tile along its path in its color. A ball then reflects off any wall it hits
+Each tick, in order: every player's action is applied (move + maybe start a jump);
+**characters are solid**, so any overlapping pair is pushed apart to a minimum center
+gap of `2 * player_half_width` (you cannot pass through the other player); jumping
+players integrate under gravity; then every ball moves by `(vx, vy)`, painting each
+tile along its path in its color. A ball then reflects off any wall it hits
 (speed preserved, so `|v|` is always `ball_speed`). Finally, if a ball crossed a
 helmet's top surface while descending and was within `[x - hw, x + hw]` horizontally,
 it is **recolored** to that player and launched upward with

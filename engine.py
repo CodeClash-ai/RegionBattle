@@ -246,6 +246,26 @@ class Game:
             p.vy = -JUMP_SPEED
             p.on_ground = False
 
+    def resolve_player_collisions(self) -> None:
+        """Characters are solid: their helmets may not overlap horizontally. After moves
+        are applied, push any overlapping pair apart to a minimum center gap of 2*hw
+        (a few relaxation passes handle chains of 3+ players), then clamp to the walls."""
+        min_gap = 2 * PLAYER_HALF_WIDTH
+        for _ in range(4):
+            order = sorted(self.players, key=lambda p: p.x)
+            moved = False
+            for a, b in zip(order, order[1:]):
+                d = b.x - a.x
+                if d < min_gap - 1e-9:
+                    push = (min_gap - d) / 2
+                    a.x -= push
+                    b.x += push
+                    moved = True
+            for p in self.players:
+                p.x = max(PLAYER_HALF_WIDTH, min(WIDTH - PLAYER_HALF_WIDTH, p.x))
+            if not moved:
+                break
+
     def step_players(self) -> None:
         for p in self.players:
             if not p.on_ground:
@@ -380,6 +400,7 @@ def run_game(bot_paths: list[str], seed: int) -> dict:
             fn = bots[i]
             action = "NONE" if fn is None else call_bot(fn, game.observation(i))
             game.apply_action(p, action)
+        game.resolve_player_collisions()
         game.step_players()
         game.step_balls()
         if t % REPLAY_EVERY == 0 or t == MAX_TICKS:
