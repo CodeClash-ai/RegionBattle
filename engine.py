@@ -371,7 +371,9 @@ class Game:
             return
 
         # 2) Solid-body bounce off the sides / underside of any character the ball is
-        # penetrating. Reflect along the axis of shallower penetration and push clear.
+        # penetrating. Reflect along the axis of shallower penetration, push clear, and
+        # -- like the top catch -- recolor the ball to that player: touching ANY part of
+        # a character claims the ball for them.
         for p in self.players:
             top = p.helmet_y
             feet = HEIGHT - p.y_off
@@ -393,6 +395,8 @@ class Game:
                 else:
                     b.y = feet + BALL_RADIUS
                     b.vy = abs(b.vy)
+            b.color = p.pid
+            return
 
     def scores(self) -> dict[int, int]:
         counts = {i: 0 for i in range(self.n)}

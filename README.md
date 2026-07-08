@@ -122,9 +122,10 @@ they only block at similar heights, so you can **jump up and over** a player, an
 **on their head** to stand there. A player being stood on **cannot jump** (its
 `can_jump` is `false`) though it can still move. Airborne players integrate under
 gravity. Then every ball moves by `(vx, vy)`, painting each tile along its path in its
-color, and finally collides with the solid characters: the **top of the head catches**
-it (recolor + angled launch), while the **sides and underside bounce** it (reflect, no
-recolor) — balls ricochet off bodies instead of passing through them. A ball then reflects off any wall it hits
+color, and finally collides with the solid characters. **Touching any part of a
+character claims the ball for that player** (it recolors). The **top of the head**
+launches it upward at an angle set by where it struck; the **sides and underside**
+simply bounce it (reflect) — either way it turns that player's color. A ball then reflects off any wall it hits
 (speed preserved, so `|v|` is always `ball_speed`). Finally, if a ball crossed a
 helmet's top surface while descending and was within `[x - hw, x + hw]` horizontally,
 it is **recolored** to that player and launched upward with
