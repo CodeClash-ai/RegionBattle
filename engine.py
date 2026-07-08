@@ -61,9 +61,13 @@ MAX_BOUNCE_ANGLE = math.radians(60)  # helmet-edge hit deflects up to this from 
 
 MAX_TICKS = 1500             # tick budget per game
 TURN_TIMEOUT = 0.10          # seconds a single get_action call may take before -> NONE
-REPLAY_EVERY = 3             # record a replay frame every N ticks
+REPLAY_EVERY = 5             # record a replay frame every N ticks
 
 NEUTRAL = -1                 # unpainted tile / unclaimed ball color
+
+# Base36 alphabet for compactly encoding a tile's owner id in replay frames
+# ('.' == neutral). Supports up to 36 players, far more than any real match.
+_B36 = "0123456789abcdefghijklmnopqrstuvwxyz"
 
 VALID_ACTIONS = {"LEFT", "RIGHT", "JUMP", "JUMP_LEFT", "JUMP_RIGHT", "NONE"}
 
@@ -319,10 +323,12 @@ class Game:
         return counts
 
     def frame(self) -> dict:
-        """A compact replay frame."""
+        """A compact replay frame. The grid is encoded as one string per row, each
+        char a base36 owner id or '.' for a neutral tile -- far smaller than an
+        int-list per tile across hundreds of frames."""
         return {
             "tick": self.tick,
-            "grid": [row[:] for row in self.grid],
+            "grid": ["".join("." if c < 0 else _B36[c] for c in row) for row in self.grid],
             "balls": [
                 {"x": round(b.x, 3), "y": round(b.y, 3), "c": b.color} for b in self.balls
             ],
