@@ -50,7 +50,8 @@ WIDTH = float(COLS)          # field width  (world units)
 HEIGHT = float(ROWS)         # field height (world units)
 
 BALL_RADIUS = 0.6
-BALL_SPEED = 0.45            # constant ball speed magnitude (tiles / tick)
+BALL_SPEED = 0.45            # constant ball speed magnitude once a ball is in motion
+BALL_REST_GAP = 2.0          # how far above the helmet a ball floats at rest (pre-bump)
 
 PLAYER_HALF_WIDTH = 2.0      # helmet spans [x - hw, x + hw]
 PLAYER_HEIGHT = 2.5          # from feet (bottom wall) up to helmet surface
@@ -170,29 +171,25 @@ class Game:
         # grid[row][col] = owning player id or NEUTRAL
         self.grid: list[list[int]] = [[NEUTRAL] * COLS for _ in range(ROWS)]
 
-        # Players evenly spaced across the bottom.
+        # Players evenly spaced across the bottom, with a small per-game random jitter
+        # so that the sims within a round aren't identical clones (balls start at rest,
+        # so the starting layout is the only source of per-game variation).
         self.players: list[PlayerState] = []
         for i in range(num_players):
             frac = (i + 0.5) / num_players
             x = frac * (WIDTH - 2 * PLAYER_HALF_WIDTH) + PLAYER_HALF_WIDTH
+            x += self.rng.uniform(-2.0, 2.0)
+            x = max(PLAYER_HALF_WIDTH, min(WIDTH - PLAYER_HALF_WIDTH, x))
             self.players.append(PlayerState(pid=i, x=x))
 
-        # One ball per player, starting above that player's head. Balls start
-        # NEUTRAL (uncolored) and paint nothing until a player bumps one to claim
-        # it -- so a passive bot paints nothing, and you must keep bumping to score.
-        # Launched upward in a deterministic-but-varied direction.
+        # One ball per player, resting motionless just above that player's head.
+        # Balls start NEUTRAL (uncolored) and paint nothing; they stay put until a
+        # player bumps one -- by jumping up into it -- which claims it (recolors to
+        # that player) and launches it. A passive bot never starts its ball, so it
+        # paints nothing and you must keep bumping to score.
         self.balls: list[Ball] = []
-        for i, p in enumerate(self.players):
-            angle = self.rng.uniform(-MAX_BOUNCE_ANGLE, MAX_BOUNCE_ANGLE)
-            self.balls.append(
-                Ball(
-                    x=p.x,
-                    y=p.helmet_y - 2.0,
-                    vx=BALL_SPEED * math.sin(angle),
-                    vy=-BALL_SPEED * math.cos(angle),
-                    color=NEUTRAL,
-                )
-            )
+        for p in self.players:
+            self.balls.append(Ball(x=p.x, y=p.helmet_y - BALL_REST_GAP, vx=0.0, vy=0.0, color=NEUTRAL))
 
     # -- observation -------------------------------------------------------------------
 
@@ -313,24 +310,28 @@ class Game:
                 b.y = HEIGHT - BALL_RADIUS
                 b.vy = -abs(b.vy)
 
-            self._resolve_helmet_bump(b, y0)
+            self._resolve_helmet_bump(b)
 
-    def _resolve_helmet_bump(self, b: Ball, y_prev: float) -> None:
-        """Recolor + reflect a ball that lands on a helmet (Breakout-paddle style).
+    def _resolve_helmet_bump(self, b: Ball) -> None:
+        """Recolor + launch a ball that touches a helmet's top surface (Breakout-paddle
+        style). Contact fires whether the *ball descends onto* a helmet or the *helmet
+        rises into* the ball (a jump) -- the ball just has to be resting on the top
+        surface and not already flying upward off it.
 
-        When more than one helmet could catch the ball this tick (players can overlap
-        -- there is no player-player collision), resolve it *fairly*: the physically
-        highest helmet intercepts first, then the one whose center is nearest the ball,
-        and only an exact tie is broken by the game RNG. Never by player id, so no
-        seating position is systematically favored."""
+        When more than one helmet touches the ball this tick (players can stack while
+        jumping), resolve it *fairly*: the physically highest helmet wins, then the one
+        whose center is nearest the ball, and only an exact tie is broken by the game
+        RNG. Never by player id, so no seating position is systematically favored."""
         candidates = []
         for p in self.players:
             top = p.helmet_y
             near_x = (p.x - PLAYER_HALF_WIDTH - BALL_RADIUS) <= b.x <= (
                 p.x + PLAYER_HALF_WIDTH + BALL_RADIUS
             )
-            crossed_top = (y_prev + BALL_RADIUS) <= top and (b.y + BALL_RADIUS) >= top
-            if near_x and crossed_top and b.vy > 0:
+            # Ball sits on the top surface: its center is within one radius above the
+            # helmet top, and it isn't already launching upward off it.
+            on_top = (top - BALL_RADIUS) <= b.y <= top and b.vy > -0.05
+            if near_x and on_top:
                 candidates.append(p)
         if not candidates:
             return

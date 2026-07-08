@@ -43,39 +43,51 @@ def get_action(obs: dict) -> str:
     if not balls:
         return "NONE"
 
-    # Target the ball reaching my helmet height soonest; a ball that isn't my color
-    # gets a bonus (bumping it flips it to me and cuts off the opponent's paint).
+    # Target a ball to bump. A stationary ball (the resting ball at the start, or one
+    # you've cornered) is bumped by standing under it and jumping, so its target is just
+    # its own x. A moving ball is intercepted where it will next descend to helmet
+    # height. Prefer the ball whose landing is NEAREST -- so we secure and keep re-hitting
+    # the one we can actually reach (usually our own) instead of abandoning it to chase a
+    # far one. A small discount pulls us toward stealing a reachable enemy/neutral ball.
+    pspeed = max(rules["player_speed"], 1e-6)
     best = None
     for b in balls:
-        hit = _predict_cross(b, helmet_y, W, R)
-        if hit is None:
-            continue
-        cx, tk = hit
-        priority = tk - (8 if b["color"] != me else 0)
+        if abs(b["vx"]) + abs(b["vy"]) < 0.01:
+            cx = b["x"]
+            tk = abs(cx - my["x"]) / pspeed + 5
+        else:
+            hit = _predict_cross(b, helmet_y, W, R)
+            if hit is None:
+                continue
+            cx, tk = hit
+        dist = abs(cx - my["x"])
+        reachable = dist <= pspeed * tk + hw
+        priority = dist + 0.05 * tk - (2.0 if (b["color"] != me and reachable) else 0.0)
         if best is None or priority < best[0]:
             best = (priority, cx, tk, b)
     if best is None:
         return _toward(my["x"], W / 2)
     _, cross_x, ticks, ball = best
 
-    # Aim: if we have time before it arrives, stand a little to one side so the bump
-    # deflects the ball toward whichever half of the field we own less of.
-    target_x = cross_x
-    reach = abs(cross_x - my["x"]) / max(rules["player_speed"], 1e-6)
-    if ticks > reach + 12:
-        left_owned, right_owned = _side_ownership(obs, me)
-        aim = 1.0 if right_owned < left_owned else -1.0
-        target_x = cross_x - aim * hw * 0.6
-    target_x = max(hw, min(W - hw, target_x))
+    # Aim: stand a little to one side of where the ball will land so we strike it
+    # off-center and deflect it toward whichever half of the field we own less of.
+    # Commit to this offset all the way through the catch -- if we re-centered as the
+    # ball approached we'd hit it dead-center every time and it would just bounce
+    # straight up and down in one column, painting nothing new.
+    left_owned, right_owned = _side_ownership(obs, me)
+    aim = 1.0 if right_owned < left_owned else -1.0   # +1 => deflect the ball rightward
+    target_x = max(hw, min(W - hw, cross_x - aim * hw * 0.6))
 
     move = _toward(my["x"], target_x)
 
-    # Jump to meet a descending ball a bit higher when we're basically underneath it.
+    # Jump up into the ball when we're basically underneath it and it's within reach
+    # above us and not already flying upward (so this handles both a resting ball we
+    # want to start and a ball descending toward us).
     if (
         my["on_ground"]
-        and abs(ball["x"] - my["x"]) < hw + 1.5
+        and abs(ball["x"] - my["x"]) < hw + 1.0
         and ball["y"] < helmet_y
-        and ball["vy"] > 0
+        and ball["vy"] >= -0.01
         and (helmet_y - ball["y"]) < 6
     ):
         return {"LEFT": "JUMP_LEFT", "RIGHT": "JUMP_RIGHT", "NONE": "JUMP"}[move]
